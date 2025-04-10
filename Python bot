@@ -1,0 +1,337 @@
+import time
+import re
+import json
+import os
+import random
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+
+class LinkedInJobBot:
+    def __init__(self, email, password, areas_of_interest, experience_level="Entry level"):
+        """
+        Initialize the LinkedIn job application bot
+        
+        Args:
+            email (str): LinkedIn login email
+            password (str): LinkedIn login password
+            areas_of_interest (list): List of job areas to search for
+            experience_level (str): Experience level to filter jobs by
+        """
+        self.email = email
+        self.password = password
+        self.areas_of_interest = areas_of_interest
+        self.experience_level = experience_level
+        self.applied_jobs = self.load_applied_jobs()
+        
+        # Configure Chrome options
+        chrome_options = Options()
+        chrome_options.add_argument("--start-maximized")
+        chrome_options.add_argument("--disable-notifications")
+        
+        # In headless mode, the bot runs without opening a browser window
+        # Uncomment the line below to run in headless mode
+        # chrome_options.add_argument("--headless")
+        
+        # Initialize the Chrome driver
+        self.driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=chrome_options
+        )
+        self.wait = WebDriverWait(self.driver, 10)
+    
+    def load_applied_jobs(self):
+        """Load previously applied jobs from a JSON file"""
+        try:
+            if os.path.exists('applied_jobs.json'):
+                with open('applied_jobs.json', 'r') as f:
+                    return json.load(f)
+            return []
+        except Exception as e:
+            print(f"Error loading applied jobs: {e}")
+            return []
+    
+    def save_applied_jobs(self):
+        """Save applied jobs to a JSON file"""
+        try:
+            with open('applied_jobs.json', 'w') as f:
+                json.dump(self.applied_jobs, f)
+        except Exception as e:
+            print(f"Error saving applied jobs: {e}")
+    
+    def login(self):
+        """Login to LinkedIn"""
+        try:
+            self.driver.get("https://www.linkedin.com/login")
+            
+            # Enter email
+            email_field = self.wait.until(EC.presence_of_element_located((By.ID, "username")))
+            email_field.send_keys(self.email)
+            
+            # Enter password
+            password_field = self.driver.find_element(By.ID, "password")
+            password_field.send_keys(self.password)
+            
+            # Click login button
+            login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+            login_button.click()
+            
+            # Wait for login to complete
+            self.wait.until(EC.url_contains("linkedin.com/feed"))
+            print("Login successful")
+            return True
+        
+        except Exception as e:
+            print(f"Login failed: {e}")
+            return False
+    
+    def is_fresher_job(self, job_description):
+        """
+        Check if a job is suitable for freshers based on its description
+        
+        Args:
+            job_description (str): The job description text
+            
+        Returns:
+            bool: True if the job is suitable for freshers, False otherwise
+        """
+        # Keywords indicating the job is for freshers
+        fresher_keywords = [
+            "fresher", "entry level", "entry-level", "graduate", 
+            "junior", "no experience", "0-1 year", "0-1 years",
+            "recent graduate", "fresh graduate", "beginner",
+            "trainee", "internship", "0 - 1 year", "0 - 1 years"
+        ]
+        
+        # Convert description to lowercase for case-insensitive matching
+        description_lower = job_description.lower()
+        
+        # Check for keywords
+        for keyword in fresher_keywords:
+            if keyword in description_lower:
+                return True
+        
+        # Check for experience requirements
+        experience_pattern = r"(\d+)[+\-\s]*years? of experience"
+        matches = re.findall(experience_pattern, description_lower)
+        
+        for match in matches:
+            # If any experience requirement is > 1 year, it's likely not for freshers
+            if int(match) > 1:
+                return False
+        
+        return True
+    
+    def search_jobs(self, job_title):
+        """
+        Search for jobs with the specified title
+        
+        Args:
+            job_title (str): The job title to search for
+            
+        Returns:
+            list: List of job URLs
+        """
+        job_urls = []
+        
+        try:
+            # Construct search URL with experience level filter
+            search_url = f"https://www.linkedin.com/jobs/search/?keywords={job_title.replace(' ', '%20')}&f_E={self.experience_level.replace(' ', '%20')}"
+            self.driver.get(search_url)
+            
+            # Wait for job listings to load
+            time.sleep(3)
+            
+            # Scroll down to load more jobs
+            for i in range(5):
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)
+            
+            # Get all job cards
+            job_cards = self.driver.find_elements(By.CSS_SELECTOR, ".job-card-container")
+            
+            for job_card in job_cards:
+                try:
+                    # Extract job URL
+                    job_link = job_card.find_element(By.CSS_SELECTOR, ".job-card-list__title")
+                    job_url = job_link.get_attribute("href")
+                    if job_url:
+                        job_urls.append(job_url)
+                except Exception as e:
+                    print(f"Error extracting job URL: {e}")
+                    continue
+            
+            print(f"Found {len(job_urls)} jobs for '{job_title}'")
+            return job_urls
+            
+        except Exception as e:
+            print(f"Error searching for jobs: {e}")
+            return []
+    
+    def apply_to_job(self, job_url):
+        """
+        Apply to a job
+        
+        Args:
+            job_url (str): The URL of the job to apply to
+            
+        Returns:
+            bool: True if application was successful, False otherwise
+        """
+        try:
+            # Check if already applied
+            if job_url in self.applied_jobs:
+                print(f"Already applied to {job_url}")
+                return False
+            
+            # Open job page
+            self.driver.get(job_url)
+            time.sleep(3)
+            
+            # Get job title and company
+            try:
+                job_title = self.driver.find_element(By.CSS_SELECTOR, ".top-card-layout__title").text
+                company = self.driver.find_element(By.CSS_SELECTOR, ".topcard__org-name-link").text
+            except:
+                job_title = "Unknown Position"
+                company = "Unknown Company"
+            
+            # Get job description
+            try:
+                job_description = self.driver.find_element(By.CSS_SELECTOR, ".show-more-less-html__markup").text
+            except:
+                job_description = ""
+            
+            # Check if the job is suitable for freshers
+            if not self.is_fresher_job(job_description):
+                print(f"Job is not for freshers: {job_title} at {company}")
+                return False
+            
+            # Find the apply button
+            try:
+                apply_button = self.driver.find_element(By.CSS_SELECTOR, ".jobs-apply-button")
+                apply_button.click()
+                time.sleep(2)
+            except NoSuchElementException:
+                print(f"Apply button not found for {job_title} at {company}")
+                return False
+            
+            # Handle the application flow
+            try:
+                # Check if there's a Next button (multi-step application)
+                while True:
+                    try:
+                        next_button = self.wait.until(EC.element_to_be_clickable(
+                            (By.CSS_SELECTOR, "button[aria-label='Continue to next step']")
+                        ))
+                        next_button.click()
+                        time.sleep(1)
+                    except TimeoutException:
+                        # No next button found, might be at the review step or finished
+                        break
+                
+                # Look for the submit application button
+                submit_button = self.wait.until(EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, "button[aria-label='Submit application']")
+                ))
+                submit_button.click()
+                
+                # Wait for confirmation
+                time.sleep(3)
+                
+                # Add to applied jobs
+                self.applied_jobs.append(job_url)
+                self.save_applied_jobs()
+                
+                print(f"Successfully applied to {job_title} at {company}")
+                return True
+                
+            except Exception as e:
+                print(f"Error in application process: {e}")
+                
+                # Try to exit the application flow
+                try:
+                    close_button = self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='Dismiss']")
+                    close_button.click()
+                except:
+                    pass
+                
+                return False
+                
+        except Exception as e:
+            print(f"Error applying to job: {e}")
+            return False
+    
+    def run(self, max_applications_per_search=5, max_total_applications=20):
+        """
+        Run the job application bot
+        
+        Args:
+            max_applications_per_search (int): Maximum number of applications per job search
+            max_total_applications (int): Maximum total number of applications
+        """
+        if not self.login():
+            print("Failed to login. Exiting.")
+            return
+        
+        total_applications = 0
+        
+        for job_area in self.areas_of_interest:
+            print(f"\nSearching for {job_area} jobs...")
+            job_urls = self.search_jobs(job_area)
+            
+            # Shuffle job URLs to randomize the order
+            random.shuffle(job_urls)
+            
+            applications_for_this_search = 0
+            
+            for job_url in job_urls:
+                if applications_for_this_search >= max_applications_per_search:
+                    print(f"Reached maximum applications for {job_area}")
+                    break
+                
+                if total_applications >= max_total_applications:
+                    print("Reached maximum total applications")
+                    break
+                
+                # Add random delay between applications (1-5 seconds)
+                time.sleep(random.uniform(1, 5))
+                
+                success = self.apply_to_job(job_url)
+                
+                if success:
+                    applications_for_this_search += 1
+                    total_applications += 1
+            
+            print(f"Applied to {applications_for_this_search} {job_area} jobs")
+        
+        print(f"\nTotal jobs applied: {total_applications}")
+        self.driver.quit()
+
+if __name__ == "__main__":
+    # Configuration
+    linkedin_email = "your_email@example.com"
+    linkedin_password = "your_password"
+    
+    areas_of_interest = [
+        "Technical Content Writer",
+        "Embedded Systems Engineer",
+        "IoT Developer",
+        "Python Developer",
+        "Cybersecurity Analyst"
+    ]
+    
+    # Create and run the bot
+    bot = LinkedInJobBot(
+        email=linkedin_email,
+        password=linkedin_password,
+        areas_of_interest=areas_of_interest
+    )
+    
+    # Run with limits to prevent too many applications
+    bot.run(max_applications_per_search=3, max_total_applications=10)
