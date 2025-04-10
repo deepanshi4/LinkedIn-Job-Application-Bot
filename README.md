@@ -43,7 +43,8 @@ bashpip install -r requirements.txt
 
 Configure your credentials and preferences
 Update the configuration section at the bottom of LinkedIn-Job-Application-Bot.py:
-pythonlinkedin_email = "your_email@example.com"
+python 
+linkedin_email = "your_email@example.com"
 linkedin_password = "your_password"
 
 areas_of_interest = [
