@@ -1,6 +1,7 @@
 # LinkedIn-Job-Application-Bot
 Automated LinkedIn job application tool for tech positions
 An intelligent automated solution that streamlines your job search by automatically identifying and applying to relevant entry-level positions on LinkedIn, tailored specifically for technical roles suitable for freshers.
+
 🔍 Features
 
 Smart filtering: Analyzes job descriptions to identify truly fresher-friendly opportunities
